@@ -1,12 +1,12 @@
 # NILE-TRADES
 
-**Self-learning trading agent** built with:
+**Fast self-contained trading agent** for Deriv MT5.
 
-- **Goldman Alpha Framework** (institutional quality + liquidity + crowding + volatility + portfolio risk filters)
-- **MetaTrader 5** connection (Deriv-ready)
-- **Jev speed layer** (fast BUY / SELL / HOLD decisions)
+- **Goldman Alpha Framework** — institutional quality, liquidity, crowding, volatility, portfolio risk filters
+- **Local fast signal** — pure Python, no external API (no Jev)
+- **MetaTrader 5** connector (Deriv-ready)
 - **Dashboard** for live monitoring
-- Designed for continuous 24/7 operation
+- Target cycle: **~150–250 ms** across 10 symbols
 
 ## Instruments
 
@@ -20,56 +20,52 @@
 ## Architecture
 
 ```
-Jev (speed) → Goldman Filters → Risk Overlay → MT5 Execution
-                     ↑
-              Trade Memory (self-learning seed)
+MT5 ticks
+    ↓
+Fast local signal   (momentum + RSI gate, <1 ms)
+    ↓
+Goldman Filters     (quality + liquidity + crowding + vol + portfolio)
+    ↓
+Order Intent        → MT5 execution (off by default)
+    ↑
+Trade Memory        (self-learning seed)
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Clone
 git clone https://github.com/Leonorm56/NILE-TRADES.git
 cd NILE-TRADES
-
-# 2. Install
 pip install -r requirements.txt
-
-# 3. Configure
 cp .env.example .env
-# Edit .env with your Deriv MT5 login, password, server
-
-# 4. Run dashboard + engine
+# Edit .env with Deriv MT5 login / password / server
 python main.py
 ```
 
-Open http://localhost:8000 for the dashboard.
+Open http://localhost:8000
+
+## Speed
+
+| Part | Typical |
+|------|---------|
+| Signal + Goldman (per symbol) | < 2 ms |
+| Full cycle (10 symbols) | ~50–150 ms work |
+| Loop interval | 200 ms (configurable in `main.py`) |
+
+No external model or API call in the hot path.
 
 ## Project Structure
 
 ```
 NILE-TRADES/
-├── goldman/          # Institutional alpha filters
-├── mt5/              # MetaTrader 5 connector (Deriv)
-├── jev/              # Fast decision speed layer
-├── engine/           # Decision + risk orchestration
-├── memory/           # Trade outcome memory (self-learning seed)
-├── dashboard/        # FastAPI web UI
-├── config/           # Settings
-└── main.py           # Entry point
+├── goldman/       # Institutional filters
+├── mt5/           # Deriv MT5 connector
+├── engine/        # Fast signal + decision
+├── memory/        # Trade outcome memory
+├── dashboard/     # FastAPI UI
+├── config/
+└── main.py
 ```
-
-## Goldman Layer
-
-Based on Yogesh Malhotra (2018) guidance for a Goldman Sachs alumnus hedge fund ($400–500B AUM):
-
-1. Alpha Quality Gate
-2. Liquidity & Microstructure Gate
-3. Crowding & Capacity Check
-4. Volatility Regime size adjustment
-5. Portfolio Risk Overlay
-
-Full details in `goldman/framework.md`.
 
 ## License
 
@@ -77,4 +73,4 @@ MIT
 
 ## Disclaimer
 
-Trading involves substantial risk of loss. This software is for educational and research purposes. Past performance is not indicative of future results. Use at your own risk.
+Trading involves substantial risk of loss. Educational / research use. Use at your own risk.

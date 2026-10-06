@@ -4,12 +4,11 @@ NILE-TRADES Dashboard – FastAPI + simple HTML.
 
 from __future__ import annotations
 
-import time
-from typing import Dict, Any, List
+from typing import Dict, Any
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-app = FastAPI(title="NILE-TRADES", version="0.1.0")
+app = FastAPI(title="NILE-TRADES", version="0.2.0")
 
 STATE: Dict[str, Any] = {
     "connected": False,
@@ -19,6 +18,7 @@ STATE: Dict[str, Any] = {
     "memory_stats": {},
     "paused": False,
     "updated_at": 0,
+    "last_cycle_ms": 0,
 }
 
 
@@ -36,9 +36,9 @@ async def index(request: Request):
     * { box-sizing:border-box; margin:0; padding:0; }
     body { font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); padding:1.5rem; }
     h1 { font-size:1.5rem; margin-bottom:1rem; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; }
     .card { background:var(--card); border-radius:12px; padding:1.25rem; }
-    .card h2 { font-size:0.9rem; color:var(--muted); margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.05em; }
+    .card h2 { font-size:0.85rem; color:var(--muted); margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.05em; }
     .big { font-size:1.75rem; font-weight:600; }
     .green { color:var(--green); } .red { color:var(--red); }
     table { width:100%; border-collapse:collapse; font-size:0.85rem; }
@@ -49,7 +49,7 @@ async def index(request: Request):
   </style>
 </head>
 <body>
-  <h1>NILE-TRADES</h1>
+  <h1>NILE-TRADES <span style="font-size:0.7rem;color:var(--muted);font-weight:400">fast local</span></h1>
   <div class="grid">
     <div class="card"><h2>Account</h2><div id="account">Loading…</div></div>
     <div class="card"><h2>Status</h2><div id="status">Loading…</div><button onclick="togglePause()">Pause / Resume</button></div>
@@ -68,7 +68,7 @@ async def index(request: Request):
       document.getElementById('status').innerHTML = `
         <div><span class="status ${d.connected?'on':'off'}"></span>${d.connected?'Connected':'Disconnected'}</div>
         <div>${d.paused ? '⏸ PAUSED' : '▶ Running'}</div>
-        <div style="color:var(--muted);font-size:0.8rem;margin-top:0.3rem;">Updated ${new Date(d.updated_at*1000).toLocaleTimeString()}</div>`;
+        <div style="color:var(--muted);font-size:0.8rem;margin-top:0.3rem;">Cycle ${ (d.last_cycle_ms||0).toFixed(0) } ms · ${new Date(d.updated_at*1000).toLocaleTimeString()}</div>`;
       document.getElementById('memory').innerHTML = `
         Trades: ${d.memory_stats.trades||0}<br>
         Win rate: ${((d.memory_stats.win_rate||0)*100).toFixed(1)}%<br>
@@ -84,13 +84,13 @@ async def index(request: Request):
         ? `<table><tr><th>Symbol</th><th>Action</th><th>Conf</th><th>Goldman</th><th>ms</th></tr>
            ${dec.slice(-15).reverse().map(x=>`<tr>
              <td>${x.symbol}</td><td>${x.direction}</td><td>${(x.confidence*100).toFixed(0)}%</td>
-             <td>${x.approved?'✓':'✗'} ${x.goldman_reason.slice(0,40)}</td>
-             <td>${x.jev_latency_ms.toFixed(0)}</td></tr>`).join('')}</table>`
+             <td>${x.approved?'✓':'✗'} ${(x.goldman_reason||'').slice(0,36)}</td>
+             <td>${(x.latency_ms||0).toFixed(1)}</td></tr>`).join('')}</table>`
         : 'No decisions yet';
     }
     async function togglePause() { await fetch('/api/pause', {method:'POST'}); refresh(); }
     refresh();
-    setInterval(refresh, 2000);
+    setInterval(refresh, 1500);
   </script>
 </body>
 </html>

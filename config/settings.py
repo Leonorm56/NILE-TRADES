@@ -12,9 +12,6 @@ class Settings(BaseSettings):
     max_concurrent_positions: int = 6
     default_lot_size: float = 0.01
 
-    jev_api_key: str = ""
-    jev_endpoint: str = ""
-
     dashboard_host: str = "0.0.0.0"
     dashboard_port: int = 8000
 
