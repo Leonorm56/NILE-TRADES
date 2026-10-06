@@ -1,3 +1,3 @@
-from .decision import DecisionEngine, OrderIntent
+from .decision import DecisionEngine, OrderIntent, fast_signal
 
-__all__ = ["DecisionEngine", "OrderIntent"]
+__all__ = ["DecisionEngine", "OrderIntent", "fast_signal"]

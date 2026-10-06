@@ -1,6 +1,7 @@
 """
 NILE-TRADES entry point.
-Starts the decision loop + FastAPI dashboard.
+Fast local signal → Goldman filters → MT5. No Jev.
+Target cycle: ~150–250 ms across 10 symbols.
 """
 
 from __future__ import annotations
@@ -16,8 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from config.settings import settings
-from mt5 import MT5Connector, ALL_SYMBOLS, is_synthetic
-from jev import JevClient
+from mt5 import MT5Connector, ALL_SYMBOLS
 from engine import DecisionEngine
 from memory.trade_memory import TradeMemory
 from dashboard.app import app, STATE
@@ -25,9 +25,12 @@ from dashboard.app import app, STATE
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("nile")
 
+# Loop timing (seconds). 0.15–0.25 is aggressive but stable on retail MT5.
+LOOP_INTERVAL = 0.20
+
 
 def build_features(symbol: str, connector: MT5Connector) -> Dict[str, float]:
-    """Minimal feature set for Jev + Goldman. Expand later."""
+    """Minimal features — keep under 1–2 ms."""
     info = connector.symbol_info(symbol)
     if not info:
         return {"spread_pct": 0.05, "atr_pct": 0.8, "mom_5m": 0.0, "rsi": 50.0, "volume_ratio": 1.0}
@@ -48,19 +51,20 @@ def build_features(symbol: str, connector: MT5Connector) -> Dict[str, float]:
 
 async def trading_loop(connector: MT5Connector, engine: DecisionEngine, memory: TradeMemory):
     symbols = list(ALL_SYMBOLS.keys())
-    logger.info(f"Trading loop started | symbols={symbols}")
+    logger.info(f"Fast loop started | symbols={len(symbols)} | interval={LOOP_INTERVAL*1000:.0f}ms")
 
     while True:
+        cycle_t0 = time.perf_counter()
         try:
             if STATE.get("paused"):
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
                 continue
 
             if not connector.connected:
                 ok = connector.connect()
                 STATE["connected"] = ok
                 if not ok:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(2)
                     continue
 
             acct = connector.account()
@@ -76,7 +80,6 @@ async def trading_loop(connector: MT5Connector, engine: DecisionEngine, memory: 
             positions = connector.positions()
             STATE["positions"] = positions
             STATE["memory_stats"] = memory.stats()
-            STATE["updated_at"] = time.time()
 
             daily_pnl_pct = 0.0
             if acct and acct.balance:
@@ -101,17 +104,17 @@ async def trading_loop(connector: MT5Connector, engine: DecisionEngine, memory: 
                     "confidence": intent.confidence,
                     "approved": intent.approved,
                     "goldman_reason": intent.goldman_reason,
-                    "jev_latency_ms": intent.jev_latency_ms,
+                    "latency_ms": intent.latency_ms,
                     "ts": time.time(),
                 })
-                STATE["last_decisions"] = STATE["last_decisions"][-50:]
+                STATE["last_decisions"] = STATE["last_decisions"][-40:]
 
                 if intent.approved and intent.direction in ("BUY", "SELL"):
                     logger.info(
                         f"ORDER {intent.direction} {intent.symbol} vol={intent.volume} "
-                        f"conf={intent.confidence:.2f} goldman={intent.goldman_reason}"
+                        f"conf={intent.confidence:.2f} [{intent.latency_ms:.1f}ms] {intent.goldman_reason}"
                     )
-                    # Uncomment to enable live orders:
+                    # Live orders OFF by default — uncomment when ready:
                     # result = connector.place_market_order(
                     #     symbol=intent.symbol,
                     #     direction=intent.direction,
@@ -119,13 +122,21 @@ async def trading_loop(connector: MT5Connector, engine: DecisionEngine, memory: 
                     #     sl=intent.sl,
                     #     tp=intent.tp,
                     # )
-                    # logger.info(f"Order result: {result}")
 
-            await asyncio.sleep(3)
+            STATE["updated_at"] = time.time()
+            cycle_ms = (time.perf_counter() - cycle_t0) * 1000
+            STATE["last_cycle_ms"] = cycle_ms
+
+            # Sleep only the remaining time to hit LOOP_INTERVAL
+            remaining = LOOP_INTERVAL - (cycle_ms / 1000)
+            if remaining > 0.01:
+                await asyncio.sleep(remaining)
+            else:
+                await asyncio.sleep(0.01)  # yield
 
         except Exception as e:
             logger.exception(f"Loop error: {e}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(1)
 
 
 def main():
@@ -135,16 +146,15 @@ def main():
         server=settings.mt5_server,
         path=settings.mt5_path,
     )
-    jev = JevClient(api_key=settings.jev_api_key, endpoint=settings.jev_endpoint)
-    engine = DecisionEngine(jev=jev, default_lot=settings.default_lot_size)
+    engine = DecisionEngine(default_lot=settings.default_lot_size)
     memory = TradeMemory()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(trading_loop(connector, engine, memory))
 
-    logger.info(f"Dashboard \u2192 http://{settings.dashboard_host}:{settings.dashboard_port}")
-    uvicorn.run(app, host=settings.dashboard_host, port=settings.dashboard_port, log_level="info")
+    logger.info(f"Dashboard → http://{settings.dashboard_host}:{settings.dashboard_port}")
+    uvicorn.run(app, host=settings.dashboard_host, port=settings.dashboard_port, log_level="warning")
 
 
 if __name__ == "__main__":
